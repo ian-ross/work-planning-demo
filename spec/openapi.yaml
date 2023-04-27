@@ -1,0 +1,437 @@
+openapi: 3.0.0
+
+info:
+  title: Shift Planning API
+  version: 0.1.0
+
+tags:
+  - name: authentication
+    description: Login, logout and token refresh
+  - name: worker
+    description: Workers
+  - name: shift
+    description: Shifts
+  - name: scheduling
+    description: Scheduling
+  
+paths:
+  /auth/login:
+    post:
+      tags: [authentication]
+      operationId: postLogin
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Credentials'
+        '400':
+          description: Invalid format for login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Invalid login credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /auth/logout:
+    post:
+      tags: [authentication]
+      operationId: postLogout
+      security: []
+      responses:
+        '204':
+          description: Successful logout
+          
+  /auth/refresh_token:
+    post:
+      tags: [authentication]
+      operationId: postRefreshToken
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsRefresh'
+        required: true
+      responses:
+        '200':
+          description: Successful token refresh
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Credentials'
+        '400':
+          description: Invalid format for token refresh
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Failed to refresh access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      
+  /me:
+    get:
+      tags: [worker]
+      summary: Get information about current user
+      operationId: getMe
+      responses:
+        '200':
+          description: Successful retrieval of user data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worker'
+
+  /schedule:
+    get:
+      tags: [scheduling]
+      summary: Get schedule information for current user
+      operationId: getSchedule
+      parameters:
+        - $ref: '#/components/parameters/SpanDate'
+        - $ref: '#/components/parameters/SpanLength'
+      responses:
+        '200':
+          description: Successful retrieval of user schedule
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shift'
+        
+  /worker:
+    get:
+      tags: [worker]
+      summary: Get all workers
+      operationId: getWorkers
+      security:
+        - BearerAuth:
+            - admin
+      responses:
+        '200':
+          description: Successful retrieval of worker list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Worker'
+    post:
+      tags: [worker]
+      summary: Create new worker
+      operationId: createWorker
+      security:
+        - BearerAuth:
+            - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Worker'
+        required: true
+      responses:
+        '200':
+          description: Successful creation of worker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worker'
+      
+    put:
+      tags: [worker]
+      summary: Update an existing worker
+      operationId: updateWorker
+      security:
+        - BearerAuth:
+            - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Worker'
+        required: true
+      responses:
+        '200':
+          description: Successful update of single worker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worker'
+                
+    delete:
+      tags: [worker]
+      summary: Delete an existing worker
+      operationId: deleteWorker
+      security:
+        - BearerAuth:
+            - admin
+      responses:
+        '204':
+          description: Successful deletion of worker
+
+  "/worker/{worker-id}":
+    get:
+      tags: [worker]
+      summary: Get a single worker
+      operationId: getWorker
+      security:
+        - BearerAuth:
+            - admin
+      parameters:
+        - $ref: '#/components/parameters/WorkerIdParam'
+      responses:
+        '200':
+          description: Successful retrieval of single worker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worker'
+
+  /shift:
+    get:
+      tags: [shift]
+      summary: Get shifts for a span of time
+      operationId: getShifts
+      parameters:
+        - $ref: '#/components/parameters/SpanDate'
+        - $ref: '#/components/parameters/SpanLength'
+      responses:
+        '200':
+          description: Succesful retrieval of shifts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shift'
+    post:
+      tags: [shift]
+      summary: Create new shift
+      operationId: createShift
+      security:
+        - BearerAuth:
+            - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Shift'
+        required: true
+      responses:
+        '200':
+          description: Successful creation of shift
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+                
+    put:
+      tags: [shift]
+      summary: Update an existing shift
+      operationId: updateShift
+      security:
+        - BearerAuth:
+            - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Shift'
+        required: true
+      responses:
+        '200':
+          description: Successful update of shift
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+
+  "/shift/{shift-id}":
+    get:
+      tags: [shift]
+      summary: Get a single shift
+      operationId: getShift
+      parameters:
+        - $ref: '#/components/parameters/ShiftIdParam'
+      responses:
+        '200':
+          description: Succesful retrieval of shift
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+    delete:
+      tags: [shift]
+      summary: Delete an existing shift
+      operationId: deleteShift
+      security:
+        - BearerAuth:
+            - admin
+      parameters:
+        - $ref: '#/components/parameters/ShiftIdParam'
+      responses:
+        '204':
+          description: Shift successfully deleted
+
+  "/shift/{shift-id}/assignment":
+    post:
+      tags: [scheduling]
+      summary: Create new shift assignment
+      operationId: createShiftAssignment
+      parameters:
+        - $ref: '#/components/parameters/ShiftIdParam'
+      responses:
+        '204':
+          description: Succesful creation of shift assignment
+    delete:
+      tags: [scheduling]
+      summary: Delete an existing shift assignment
+      operationId: deleteShiftAssignment
+      parameters:
+        - $ref: '#/components/parameters/ShiftIdParam'
+      responses:
+        '204':
+          description: Shift assignment successfully deleted
+      
+components:
+  parameters:
+
+    WorkerIdParam:
+      name: worker-id
+      in: path
+      description: Worker ID
+      required: true
+      schema:
+        $ref: '#/components/schemas/WorkerId'
+
+    ShiftIdParam:
+      name: shift-id
+      in: path
+      description: Shift ID
+      required: true
+      schema:
+        $ref: '#/components/schemas/ShiftId'
+    
+    SpanDate:
+      name: date
+      in: query
+      description: Date including in weekly schedule to fetch (defaults to today)
+      required: false
+      schema:
+        type: string
+        format: date
+        
+    SpanLength:
+      name: span
+      in: query
+      description: 'Span of schedule ("week" or "day", defaults to "week")'
+      required: false
+      schema:
+        type: string
+        enum: [week, day]
+        default: week
+    
+  schemas:
+
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    Login:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          format: password
+          
+    Credentials:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+
+    CredentialsRefresh:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          
+    WorkerId:
+      type: integer
+      format: int64
+      
+    ShiftId:
+      type: integer
+      format: int64
+      
+    Worker:
+      type: object
+      required: [email, name, is_admin]
+      properties:
+        id:
+          $ref: '#/components/schemas/WorkerId'
+        email:
+          type: string
+        name:
+          type: string
+        is_admin:
+          type: boolean
+        password:
+          type: string
+          format: password
+
+    Shift:
+      type: object
+      required: [start_time, end_time, total_capacity]
+      properties:
+        id:
+          $ref: '#/components/schemas/ShiftId'
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        total_capacity:
+          type: integer
+          format: int32
+        remaining_capacity:
+          type: integer
+          format: int32
+          
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: [ ]

@@ -1,0 +1,4 @@
+DEV_MODE=true
+STORE_URL=memory
+AUTH_KEY=development-only
+ADD_TEST_DATA=true
