@@ -35,28 +35,25 @@ Missing things:
    generate a feasible schedule that covers all the required shifts.
    There should also be endpoints to allow admin users to reassign
    shifts, remove shift assignments, reschedule for cases of illness,
-   set up other ruled for scheduling, etc.
+   set up other rules for scheduling, etc.
  - More tests. I'm sure there are things that don't quite work, just
    because I knocked this together pretty quickly.
  - Scheduling algorithms. Some of these kinds of problems have
    polynomial-time algorithms for finding admissible schedules, but
    it's become clear to me from reading Michalewicz & Fogel that as
    soon as you move from simple problems to more realistic and
-   interesting problems, where you usually have extra constraints and
-   maybe some kind of measure of satisfaction for the final schedule,
-   you're going to end up going to have to use some sort of heuristic
-   search. Whether that's simulated annealing or some kind of
-   evolutionary search depends on the problem details, but it might be
-   interesting to experiment with some options.
+   interesting problems (where you usually have extra constraints and
+   maybe some kind of measure of satisfaction for the final schedule),
+   you're going to have to use some sort of heuristic search. Whether
+   that's simulated annealing or some kind of evolutionary search
+   depends on the problem details, but it might be interesting to
+   experiment with some options.
  - Maybe try a different Go SQL library? I usually use `sqlx`, but a
    lot of people seem to like `pgx` (probably combined with `pgxscan`
    to get something like the nice scanning behavior of `sqlx`). Or try
    an ORM? I've played with `gorm` a bit, but I'm not super keen on
    it.
  
-**TODO**:
- - Swagger docs
-
 ## Installation requirements
 
  - Go version: 1.20: it might work with earlier versions, but no
