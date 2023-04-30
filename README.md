@@ -1,5 +1,12 @@
 # Simple REST API service for shift planning
 
+*This is temporarily deployed on my VPS. You can go to [the Swagger
+docs](https://planning-demo.skybluetrades.net/api-docs/) and play with
+it. The deployed server is using the in-memory database with the test
+data that goes with it: you can authenticate with any of the test
+users listed
+[here](https://github.com/ian-ross/work-planning-demo/blob/main/store/memory_test_data.go#L51-L54).*
+
 For now, this is just a simple REST API implementation (in Go) for a
 basic work planning service. I might turn it into a platform for
 experimenting with some of the heuristic optimization methods
