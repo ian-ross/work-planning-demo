@@ -9,7 +9,9 @@ which I've been reading recently as background for another project.
 
 Implemented things:
 
- - Echo-based server derived from OpenAPI API specification.
+ - [Echo](https://echo.labstack.com/)-based server derived from
+   OpenAPI API specification using
+   [oapi-codegen](https://github.com/deepmap/oapi-codegen).
  - JWT authentication with refresh tokens.
  - Pluggable data store interface.
  - In-memory data store for development (use `STORE_URL=memory`).

@@ -11,6 +11,8 @@ import (
 	"skybluetrades.net/work-planning-demo/store"
 )
 
+// Embed static files for Swagger UI.
+//
 //go:embed static
 var staticFiles embed.FS
 

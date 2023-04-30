@@ -1,3 +1,6 @@
+// `PGStore` is a Postgres-based implementation of the `Store`
+// interface, including embedded migrations (using `sql-migrate`).
+
 package store
 
 import (
@@ -19,8 +22,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// PGClient is a wrapper for the user database connection.
-type PGClient struct {
+// PGStore is a wrapper for the user database connection.
+type PGStore struct {
 	db *sqlx.DB
 }
 
@@ -42,10 +45,10 @@ func NewPostgresStore(dbURL string) (Store, error) {
 	// Limit maximum connections (default is unlimited).
 	db.SetMaxOpenConns(10)
 
-	return &PGClient{db: db}, nil
+	return &PGStore{db: db}, nil
 }
 
-func (pg *PGClient) Migrate() {
+func (pg *PGStore) Migrate() {
 	// Find embedded migrations.
 	m := &migrate.AssetMigrationSource{
 		Asset: migrations.ReadFile,
@@ -73,7 +76,7 @@ func (pg *PGClient) Migrate() {
 	}
 }
 
-func (pg *PGClient) Authenticate(email string, password string) (*model.Worker, error) {
+func (pg *PGStore) Authenticate(email string, password string) (*model.Worker, error) {
 	worker := &model.Worker{}
 	err := pg.db.Get(worker, workerByEmail, email)
 	if err == sql.ErrNoRows {
@@ -93,7 +96,7 @@ SELECT id, email, name, is_admin, password
   FROM worker
  WHERE email = $1`
 
-func (pg *PGClient) GetWorkers() ([]*model.Worker, error) {
+func (pg *PGStore) GetWorkers() ([]*model.Worker, error) {
 	results := []*model.Worker{}
 	var err error
 	err = pg.db.Select(&results, getWorkers)
@@ -105,7 +108,7 @@ func (pg *PGClient) GetWorkers() ([]*model.Worker, error) {
 
 const getWorkers = `SELECT id, email, name, is_admin FROM worker`
 
-func (pg *PGClient) GetWorkerById(id model.WorkerID) (*model.Worker, error) {
+func (pg *PGStore) GetWorkerById(id model.WorkerID) (*model.Worker, error) {
 	worker := &model.Worker{}
 	err := pg.db.Get(worker, workerById, id)
 	if err == sql.ErrNoRows {
@@ -122,7 +125,7 @@ SELECT id, email, name, is_admin, password
   FROM worker
  WHERE id = $1`
 
-func (pg *PGClient) CreateWorker(worker *model.Worker) error {
+func (pg *PGStore) CreateWorker(worker *model.Worker) error {
 	tx, err := pg.db.Beginx()
 	if err != nil {
 		return err
@@ -168,7 +171,7 @@ INSERT INTO worker (email, name, is_admin, password)
      VALUES (:email, :name, :is_admin, :password)
 RETURNING id`
 
-func (pg *PGClient) UpdateWorker(worker *model.Worker) error {
+func (pg *PGStore) UpdateWorker(worker *model.Worker) error {
 	tx, err := pg.db.Beginx()
 	if err != nil {
 		return err
@@ -207,7 +210,7 @@ UPDATE worker
        is_admin = :is_admin, password = :password
 WHERE id = :id`
 
-func (pg *PGClient) DeleteWorkerById(id model.WorkerID) error {
+func (pg *PGStore) DeleteWorkerById(id model.WorkerID) error {
 	result, err := pg.db.Exec(deleteWorker, id)
 	if err != nil {
 		return err
@@ -224,7 +227,7 @@ func (pg *PGClient) DeleteWorkerById(id model.WorkerID) error {
 
 const deleteWorker = "DELETE FROM worker WHERE id = $1"
 
-func (pg *PGClient) GetShifts(date *time.Time, span TimeSpan, workerId *model.WorkerID) ([]*model.Shift, error) {
+func (pg *PGStore) GetShifts(date *time.Time, span TimeSpan, workerId *model.WorkerID) ([]*model.Shift, error) {
 	// Calculate interval start and end from date and span.
 	var intStart, intEnd time.Time
 	includeAll := date == nil
@@ -259,7 +262,7 @@ func (pg *PGClient) GetShifts(date *time.Time, span TimeSpan, workerId *model.Wo
 
 const getShifts = `SELECT id, start_time, end_time, capacity FROM shift`
 
-func (pg *PGClient) GetShiftById(id model.ShiftID) (*model.Shift, error) {
+func (pg *PGStore) GetShiftById(id model.ShiftID) (*model.Shift, error) {
 	shift := &model.Shift{}
 	err := pg.db.Get(shift, shiftById, id)
 	if err == sql.ErrNoRows {
@@ -276,7 +279,7 @@ SELECT id, start_time, end_time, capacity
   FROM shift
  WHERE id = $1`
 
-func (pg *PGClient) CreateShift(shift *model.Shift) error {
+func (pg *PGStore) CreateShift(shift *model.Shift) error {
 	tx, err := pg.db.Beginx()
 	if err != nil {
 		return err
@@ -312,7 +315,7 @@ INSERT INTO shift (start_time, end_time, capacity)
      VALUES (:start_time, :end_time, :capacity)
 RETURNING id`
 
-func (pg *PGClient) UpdateShift(shift *model.Shift) error {
+func (pg *PGStore) UpdateShift(shift *model.Shift) error {
 	tx, err := pg.db.Beginx()
 	if err != nil {
 		return err
@@ -347,7 +350,7 @@ UPDATE worker
        capacity = :capacity
 WHERE id = :id`
 
-func (pg *PGClient) DeleteShiftById(id model.ShiftID) error {
+func (pg *PGStore) DeleteShiftById(id model.ShiftID) error {
 	result, err := pg.db.Exec(deleteShift, id)
 	if err != nil {
 		return err
@@ -364,7 +367,7 @@ func (pg *PGClient) DeleteShiftById(id model.ShiftID) error {
 
 const deleteShift = "DELETE FROM shift WHERE id = $1"
 
-func (pg *PGClient) CreateShiftAssignment(workerId model.WorkerID, shiftId model.ShiftID) error {
+func (pg *PGStore) CreateShiftAssignment(workerId model.WorkerID, shiftId model.ShiftID) error {
 	tx, err := pg.db.Beginx()
 	if err != nil {
 		return err
@@ -423,7 +426,7 @@ INSERT INTO shift_assignment (worker_id, shift_id)
      VALUES (:worker_id, :shift_id)
 RETURNING id`
 
-func (pg *PGClient) DeleteShiftAssignment(workerId model.WorkerID, shiftId model.ShiftID) error {
+func (pg *PGStore) DeleteShiftAssignment(workerId model.WorkerID, shiftId model.ShiftID) error {
 	result, err := pg.db.Exec(deleteShiftAssignment, workerId, shiftId)
 	if err != nil {
 		return err

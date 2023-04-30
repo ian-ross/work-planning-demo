@@ -5,18 +5,16 @@ import (
 	"log"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"skybluetrades.net/work-planning-demo/model"
 )
 
 func createTestWorker(s Store,
 	email string, name string, password string, isAdmin bool) *model.Worker {
-	bcryptPassword, _ := bcrypt.GenerateFromPassword([]byte(password), 0)
 	worker := &model.Worker{
 		Email:    email,
 		Name:     name,
 		IsAdmin:  isAdmin,
-		Password: string(bcryptPassword),
+		Password: password,
 	}
 	err := s.CreateWorker(worker)
 	if err != nil {

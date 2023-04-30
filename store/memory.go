@@ -1,3 +1,8 @@
+// `MemoryStore` is a simple in-memory database for workers and
+// shifts. It implements the `Store` interface, and includes some test
+// data setup via its `Migrate` method (called from the main program
+// during application startup).
+
 package store
 
 import (
