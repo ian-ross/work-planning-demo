@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"time"
 
 	"skybluetrades.net/work-planning-demo/model"
@@ -12,6 +13,14 @@ const (
 	WeekSpan TimeSpan = iota
 	DaySpan  TimeSpan = iota
 )
+
+var ErrWorkerNotFound = errors.New("unknown worker ID")
+var ErrUnknownWorkerEmail = errors.New("unknown worker email")
+var ErrShiftNotFound = errors.New("unknown shift ID")
+var ErrShiftAssignmentNotFound = errors.New("unknown shift assignment")
+var ErrShiftAtCapacity = errors.New("shift is already at capacity")
+var ErrRetrievingWorkerShifts = errors.New("failed to retrieve shifts for worker")
+var ErrTwoShiftsSameDay = errors.New("new shift is on the same day as an existing shift")
 
 type Store interface {
 	Migrate()

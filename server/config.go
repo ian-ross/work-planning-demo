@@ -12,13 +12,13 @@ type Config struct {
 	// Port is the port to run the HTTP server on.
 	Port int `env:"PORT,default=8080"`
 
-	// AccessTokenLease is the time (in minutes) for which a JWT access
+	// AccessTokenLease is the time (in seconds) for which a JWT access
 	// token is valid.
-	AccessTokenLease int `env:"ACCESS_TOKEN_LEASE,default=10"`
+	AccessTokenLease int `env:"ACCESS_TOKEN_LEASE,default=600"`
 
-	// RefreshTokenLease is the time (in minutes) for which a JWT
+	// RefreshTokenLease is the time (in seconds) for which a JWT
 	// refresh token is valid.
-	RefreshTokenLease int `env:"REFRESH_TOKEN_LEASE,default=1440"`
+	RefreshTokenLease int `env:"REFRESH_TOKEN_LEASE,default=86400"`
 
 	// AuthKey is a secret string used for generating JWT tokens.
 	AuthKey string `env:"AUTH_KEY,required"`

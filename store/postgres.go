@@ -12,6 +12,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	migrate "github.com/rubenv/sql-migrate"
 	"golang.org/x/crypto/bcrypt"
+	"skybluetrades.net/work-planning-demo/domain"
 	"skybluetrades.net/work-planning-demo/model"
 
 	// Import Postgres DB driver.
@@ -141,7 +142,11 @@ func (pg *PGClient) CreateWorker(worker *model.Worker) error {
 		return errors.New("non-unique worker email")
 	}
 
-	rows, err := tx.NamedQuery(createWorker, worker)
+	bcryptPassword, _ := bcrypt.GenerateFromPassword([]byte(worker.Password), 0)
+	stored := *worker
+	stored.Password = string(bcryptPassword)
+
+	rows, err := tx.NamedQuery(createWorker, &stored)
 	if err != nil {
 		return err
 	}
@@ -177,7 +182,11 @@ func (pg *PGClient) UpdateWorker(worker *model.Worker) error {
 		}
 	}()
 
-	result, err := tx.NamedExec(updateWorker, worker)
+	bcryptPassword, _ := bcrypt.GenerateFromPassword([]byte(worker.Password), 0)
+	stored := *worker
+	stored.Password = string(bcryptPassword)
+
+	result, err := tx.NamedExec(updateWorker, &stored)
 	if err != nil {
 		return err
 	}
@@ -369,8 +378,8 @@ func (pg *PGClient) CreateShiftAssignment(workerId model.WorkerID, shiftId model
 		}
 	}()
 
-	checkWorker := &model.Worker{}
-	err = tx.Get(checkWorker, workerById, workerId)
+	worker := &model.Worker{}
+	err = tx.Get(worker, workerById, workerId)
 	if err == sql.ErrNoRows {
 		return errors.New("unknown worker ID")
 	}
@@ -378,13 +387,22 @@ func (pg *PGClient) CreateShiftAssignment(workerId model.WorkerID, shiftId model
 		return err
 	}
 
-	checkShift := &model.Shift{}
-	err = tx.Get(checkShift, shiftById, shiftId)
+	shift := &model.Shift{}
+	err = tx.Get(shift, shiftById, shiftId)
 	if err == sql.ErrNoRows {
 		return errors.New("unknown shift ID")
 	}
 	if err != nil {
 		return err
+	}
+
+	shifts, err := pg.GetShifts(nil, WeekSpan, &workerId)
+	if err != nil {
+		return ErrRetrievingWorkerShifts
+	}
+
+	if !domain.NewShiftAssignmentOK(shifts, shift) {
+		return ErrTwoShiftsSameDay
 	}
 
 	assignment := &model.ShiftAssignment{Worker: workerId, Shift: shiftId}

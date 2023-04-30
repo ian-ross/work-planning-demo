@@ -75,7 +75,7 @@ func GenerateTokens(worker *model.Worker, cfg *Config) (string, string, error) {
 		ID:      worker.ID,
 		IsAdmin: worker.IsAdmin,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Duration(cfg.AccessTokenLease) * time.Minute).Unix(),
+			ExpiresAt: time.Now().Add(time.Duration(cfg.AccessTokenLease) * time.Second).Unix(),
 		},
 	}
 
@@ -94,7 +94,7 @@ func GenerateTokens(worker *model.Worker, cfg *Config) (string, string, error) {
 	refreshClaims := &JWTRefreshClaim{
 		ID: worker.ID,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Duration(cfg.RefreshTokenLease) * time.Minute).Unix(),
+			ExpiresAt: time.Now().Add(time.Duration(cfg.RefreshTokenLease) * time.Second).Unix(),
 		},
 	}
 

@@ -3,16 +3,12 @@ package main
 import (
 	"embed"
 	"fmt"
-	"io/fs"
 	"log"
-	"net/http"
 
 	"github.com/dotenv-org/godotenvvault"
 	"github.com/joeshaw/envdecode"
-	"github.com/labstack/echo/v4"
-	echomiddleware "github.com/labstack/echo/v4/middleware"
-	"skybluetrades.net/work-planning-demo/api"
 	"skybluetrades.net/work-planning-demo/server"
+	"skybluetrades.net/work-planning-demo/store"
 )
 
 //go:embed static
@@ -24,38 +20,26 @@ func main() {
 	godotenvvault.Load()
 	cfg := server.Config{}
 	err := envdecode.StrictDecode(&cfg)
-
-	// Retrieve API spec.
-	spec, err := api.GetSwagger()
 	if err != nil {
-		log.Fatalln("Error setting up API docs: ", err)
+		log.Fatalln("Error retrieving environment settings: ", err)
 	}
 
-	// Authentication/validation middleware.
-	mw, err := server.CreateMiddleware(spec, &cfg)
-	if err != nil {
-		log.Fatalln("Error creating middleware: ", err)
+	// Create a store for the server: options are a simple in-memory
+	// store for testing, or Postgres (not implemented yet) determined
+	// by the STORE_URL environment variable.
+	var db store.Store
+	if cfg.StoreURL == "memory" {
+		db, err = store.NewMemoryStore()
+	} else {
+		db, err = store.NewPostgresStore(cfg.StoreURL)
 	}
-
-	// Set up Echo.
-	e := echo.New()
-	e.Debug = true
-	e.Use(echomiddleware.Logger())
-	e.Use(mw...)
-
-	// Register our server.
-	srv := server.NewServer(&cfg)
-	api.RegisterHandlers(e, srv)
-
-	// Routes for API docs.
-	e.GET("/openapi3.json", func(ctx echo.Context) error {
-		return ctx.JSON(http.StatusOK, spec)
-	})
-	fsys, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		log.Fatalln("Error setting up static files:", err)
+		log.Fatalln("Error connecting to store: ", err)
 	}
-	e.GET("/*", echo.WrapHandler(http.FileServer(http.FS(fsys))))
+	db.Migrate()
+
+	// Set up Echo server.
+	e := server.NewServer(&cfg, db, &staticFiles)
 
 	// Off we go...
 	e.Logger.Fatal(e.Start(fmt.Sprintf("0.0.0.0:%d", cfg.Port)))

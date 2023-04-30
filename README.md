@@ -3,35 +3,116 @@
 For now, this is just a simple REST API implementation (in Go) for a
 basic work planning service. I might turn it into a platform for
 experimenting with some of the heuristic optimization methods
-described in Michalewicz & Fogel's *How To Solve It: Modern
-Heuristics*, which I've been reading recently as background for
-another project.
+described in Michalewicz & Fogel's [*How To Solve It: Modern
+Heuristics*](https://www.amazon.de/-/en/Zbigniew-Michalewicz/dp/3642061346/),
+which I've been reading recently as background for another project.
 
 Implemented things:
 
+ - Echo-based server derived from OpenAPI API specification.
  - JWT authentication with refresh tokens.
  - Pluggable data store interface.
  - In-memory data store for development (use `STORE_URL=memory`).
  - PostgreSQL data store including embedded migrations (use
    `STORE_URL=postgres://whatever`).
- - Echo-based server derived from OpenAPI API specification.
  - OpenAPI documentation using Redoc.
+ - Some tests (just for the login flow and authentication middleware
+   so far).
 
-**TODO**:
- - Postgres migrations
- - Postgres store methods
- - A few tests
+Missing things:
+
+ - An actual usable API for the problem! It should be possible for
+   workers to specify preferences for shifts and for an admin to
+   generate a feasible schedule that covers all the required shifts.
+   There should also be endpoints to allow admin users to reassign
+   shifts, remove shift assignments, reschedule for cases of illness,
+   set up other ruled for scheduling, etc.
+ - More tests. I'm sure there are things that don't quite work, just
+   because I knocked this together pretty quickly.
+ - Scheduling algorithms. Some of these kinds of problems have
+   polynomial-time algorithms for finding admissible schedules, but
+   it's become clear to me from reading Michalewicz & Fogel that as
+   soon as you move from simple problems to more realistic and
+   interesting problems, where you usually have extra constraints and
+   maybe some kind of measure of satisfaction for the final schedule,
+   you're going to end up going to have to use some sort of heuristic
+   search. Whether that's simulated annealing or some kind of
+   evolutionary search depends on the problem details, but it might be
+   interesting to experiment with some options.
+ - Maybe try a different Go SQL library? I usually use `sqlx`, but a
+   lot of people seem to like `pgx` (probably combined with `pgxscan`
+   to get something like the nice scanning behavior of `sqlx`). Or try
+   an ORM? I've played with `gorm` a bit, but I'm not super keen on
+   it.
  
+**TODO**:
+ - Swagger docs
+
+## Installation requirements
+
+ - Go version: 1.20: it might work with earlier versions, but no
+   promises.
+ - Mockery v2.26.1 (from
+   [here](https://github.com/vektra/mockery/releases/tag/v2.26.1)):
+   it's recommended that you install a binary version from that
+   release page. Using `go install` might cause you some problems (see
+   the Mockery docs for details).
+
+### Database setup
+
+#### In-memory database
+
+Set `STORE_URL=memory` in `.env`
+
+#### PostgreSQL database
+
+Assuming you have a local PostgreSQL instance running... Run `psql` as
+user `postgres` (`psql -U postgres`) and do the following:
+
+Create a database and connect to it:
+
+```
+postgres=# CREATE DATABASE planning_dev;
+CREATE DATABASE
+postgres=# \c planning_dev
+You are now connected to database "planning_dev" as user "postgres".
+```
+
+Create a user and grant them permissions on the database:
+
+```
+planning_dev=# CREATE USER planning_dev WITH PASSWORD '<some-password>';
+CREATE ROLE
+planning_dev=# GRANT ALL ON DATABASE planning_dev TO planning_dev;
+GRANT
+```
+
+Now put the following `STORE_URL` setting in your `.env`:
+
+```
+STORE_URL=postgres://planning_dev:<some-password>@localhost:5432/planning_dev?sslmode=disable
+```
+
+where `<some-password>` is the password you used for the
+`planning_dev` user.
+
+----
+
 ## The basic application
 
 ### Requirements
 
-Here are the barebones requirements:
+Here are the barebones requirements from the original problem
+definition:
  
  - A **worker** has **shifts**.
  - A **shift** is 8 hours long.
  - A **worker** never has two **shifts** on the same day.
  - It is a 24 hour timetable 0-8, 8-16, 16-24.
+
+Starting from there, I slightly went to town on this, because I've
+been thinking about scheduling problems, and having a little platform
+to experiment with them seemed like it might be useful.
 
 ### Data modelling description
 
@@ -63,36 +144,54 @@ can be assigned to it, which we'll call the **shift**'s "capacity".
 
 *Assumption*: **Shifts** are created "manually" by admin users.
 
-
-
+OK, that's probably enough to get going.
 
 ### Models
 
+Something like this...
+
+Workers:
+
 ```go
+type WorkerID int64
+
 type Worker struct {
-    ID         int
-    Email      string
-    Password   string
-    Name       string
-    IsAdmin    bool
-    DeletedAt  *time.Time
+	ID       WorkerID `db:"id"`
+	Email    string   `db:"email"`
+	Name     string   `db:"name"`
+	IsAdmin  bool     `db:"is_admin"`
+	Password string   `db:"password"`
 }
 ```
+
+Shifts:
 
 ```go
+type ShiftID int64
+
 type Shift struct {
-    ID int
-    Day *date.Date
-    StartTime *time.Time
-    EndTime *time.Time
-    Capacity uint
+	ID        ShiftID   `db:"id"`
+	StartTime time.Time `db:"start_time"`
+	EndTime   time.Time `db:"end_time"`
+	Capacity  int       `db:"capacity"`
 }
 ```
 
+Shift assignments:
 
+```go
+type ShiftAssignment struct {
+	Worker WorkerID `db:"worker_id"`
+	Shift  ShiftID  `db:"shift_id"`
+}
+```
 
 ### Endpoints
 
+Rough notes. At some point I stopped with this and switched over to
+working on [the OpenAPI
+spec](https://github.com/ian-ross/work-planning-demo/tree/main/spec/openapi.yaml).
+  
 ```
   POST /auth/login
   {"email": "x@y.com", "password": "blah"} => 200 {"access_token": "...", "refresh_token": "..."}
@@ -162,49 +261,3 @@ DELETE /shifts/:id/assignment
   => 404 {"message": "Unknown shift ID"}
   => 404 {"message": "User has no assignment for this shift"}
 ```
-
-
-
-# Other things to look at
-
- - `sqlx` ⇒ `pgx` + `pgxscan`?
- - Swagger UI instead of Redoc?
- 
- 
-# Database setup
-
-## In-memory database
-
-Set `STORE_URL=memory` in `.env`
-
-## PostgreSQL database
-
-Assuming you have a local PostgreSQL instance running... Run `psql` as
-user `postgres` (`psql -U postgres`) and do the following:
-
-Create a database and connect to it:
-
-```
-postgres=# CREATE DATABASE planning_dev;
-CREATE DATABASE
-postgres=# \c planning_dev
-You are now connected to database "planning_dev" as user "postgres".
-```
-
-Create a user and grant them permissions on the database:
-
-```
-planning_dev=# CREATE USER planning_dev WITH PASSWORD '<some-password>';
-CREATE ROLE
-planning_dev=# GRANT ALL ON DATABASE planning_dev TO planning_dev;
-GRANT
-```
-
-Now put the following `STORE_URL` setting in your `.env`:
-
-```
-STORE_URL=postgres://planning_dev:<some-password>@localhost:5432/planning_dev?sslmode=disable
-```
-
-where `<some-password>` is the password you used for the
-`planning_dev` user.

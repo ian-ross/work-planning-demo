@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"sync"
 	"time"
 
@@ -44,7 +43,7 @@ func (s *MemoryStore) Authenticate(email string, password string) (*model.Worker
 
 	worker, exists := s.workersByEmail[email]
 	if !exists {
-		return nil, errors.New("unknown user email")
+		return nil, ErrUnknownWorkerEmail
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(worker.Password), []byte(password)); err != nil {
@@ -76,7 +75,7 @@ func (s *MemoryStore) GetWorkerById(id model.WorkerID) (*model.Worker, error) {
 
 	worker, exists := s.workers[id]
 	if !exists {
-		return nil, errors.New("unknown worker ID")
+		return nil, ErrWorkerNotFound
 	}
 
 	rworker := *worker
@@ -88,6 +87,8 @@ func (s *MemoryStore) CreateWorker(worker *model.Worker) error {
 	defer s.RUnlock()
 
 	stored := *worker
+	bcryptPassword, _ := bcrypt.GenerateFromPassword([]byte(worker.Password), 0)
+	stored.Password = string(bcryptPassword)
 	s.lastWorkerID++
 	stored.ID = s.lastWorkerID
 	s.workers[stored.ID] = &stored
@@ -103,7 +104,7 @@ func (s *MemoryStore) UpdateWorker(worker *model.Worker) error {
 
 	existing, exists := s.workers[worker.ID]
 	if !exists {
-		return errors.New("unknown worker ID")
+		return ErrWorkerNotFound
 	}
 
 	delete(s.workers, worker.ID)
@@ -122,7 +123,7 @@ func (s *MemoryStore) DeleteWorkerById(id model.WorkerID) error {
 
 	existing, exists := s.workers[id]
 	if !exists {
-		return errors.New("unknown worker ID")
+		return ErrWorkerNotFound
 	}
 
 	delete(s.workers, id)
@@ -178,7 +179,7 @@ func (s *MemoryStore) GetShiftById(id model.ShiftID) (*model.Shift, error) {
 
 	shift, exists := s.shifts[id]
 	if !exists {
-		return nil, errors.New("unknown shift ID")
+		return nil, ErrShiftNotFound
 	}
 
 	rshift := *shift
@@ -204,7 +205,7 @@ func (s *MemoryStore) UpdateShift(shift *model.Shift) error {
 
 	_, exists := s.shifts[shift.ID]
 	if !exists {
-		return errors.New("unknown shift ID")
+		return ErrShiftNotFound
 	}
 
 	delete(s.shifts, shift.ID)
@@ -221,7 +222,7 @@ func (s *MemoryStore) DeleteShiftById(id model.ShiftID) error {
 
 	_, exists := s.shifts[id]
 	if !exists {
-		return errors.New("unknown shift ID")
+		return ErrShiftNotFound
 	}
 
 	delete(s.shifts, id)
@@ -236,7 +237,7 @@ func (s *MemoryStore) CreateShiftAssignment(
 
 	shift, exists := s.shifts[shiftId]
 	if !exists {
-		return errors.New("unknown shift ID")
+		return ErrShiftNotFound
 	}
 
 	existing := 0
@@ -246,16 +247,16 @@ func (s *MemoryStore) CreateShiftAssignment(
 		}
 	}
 	if existing >= shift.Capacity {
-		return errors.New("shift is already at capacity")
+		return ErrShiftAtCapacity
 	}
 
 	shifts, err := s.GetShifts(nil, WeekSpan, &workerId)
 	if err != nil {
-		return errors.New("failed to retrieve shifts for worker")
+		return ErrRetrievingWorkerShifts
 	}
 
 	if !domain.NewShiftAssignmentOK(shifts, shift) {
-		return errors.New("new shift is on the same day as an existing shift")
+		return ErrTwoShiftsSameDay
 	}
 
 	s.assignments = append(s.assignments, model.ShiftAssignment{Worker: workerId, Shift: shiftId})
@@ -269,7 +270,7 @@ func (s *MemoryStore) DeleteShiftAssignment(
 
 	pos := slices.Index(s.assignments, model.ShiftAssignment{Worker: workerId, Shift: shiftId})
 	if pos == -1 {
-		return errors.New("shift assignment not found")
+		return ErrShiftAssignmentNotFound
 	}
 
 	s.assignments = slices.Delete(s.assignments, pos, pos)
