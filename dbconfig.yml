@@ -1,0 +1,11 @@
+development:
+  dialect: postgres
+  datasource: dbname=work_planning_dev user=postgres sslmode=disable
+  dir: store/postgres
+  table: migrations
+
+production:
+  dialect: postgres
+  datasource: dbname=work_planning
+  dir: store/postgres
+  table: migrations

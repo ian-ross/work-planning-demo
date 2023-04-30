@@ -6,30 +6,36 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/exp/slices"
+	"skybluetrades.net/work-planning-demo/domain"
 	"skybluetrades.net/work-planning-demo/model"
 )
 
 type MemoryStore struct {
 	sync.RWMutex
-	lastWorkerID     model.WorkerID
-	lastShiftID      model.ShiftID
-	lastAssignmentID model.ShiftAssignmentID
-	workers          map[model.WorkerID]*model.Worker
-	workersByEmail   map[string]*model.Worker
-	shifts           map[model.ShiftID]*model.Shift
-	assignments      map[model.ShiftAssignmentID]*model.ShiftAssignment
+	lastWorkerID   model.WorkerID
+	lastShiftID    model.ShiftID
+	workers        map[model.WorkerID]*model.Worker
+	workersByEmail map[string]*model.Worker
+	shifts         map[model.ShiftID]*model.Shift
+	assignments    []model.ShiftAssignment
 }
 
 func NewMemoryStore() (Store, error) {
 	return &MemoryStore{
-		lastWorkerID:     0,
-		lastShiftID:      0,
-		lastAssignmentID: 0,
-		workers:          make(map[model.WorkerID]*model.Worker),
-		workersByEmail:   make(map[string]*model.Worker),
-		shifts:           make(map[model.ShiftID]*model.Shift),
-		assignments:      make(map[model.ShiftAssignmentID]*model.ShiftAssignment),
+		lastWorkerID:   0,
+		lastShiftID:    0,
+		workers:        make(map[model.WorkerID]*model.Worker),
+		workersByEmail: make(map[string]*model.Worker),
+		shifts:         make(map[model.ShiftID]*model.Shift),
+		assignments:    []model.ShiftAssignment{},
 	}, nil
+}
+
+func (s *MemoryStore) Migrate() {
+	if len(s.workers) == 0 && len(s.shifts) == 0 && len(s.assignments) == 0 {
+		addTestData(s)
+	}
 }
 
 func (s *MemoryStore) Authenticate(email string, password string) (*model.Worker, error) {
@@ -77,7 +83,7 @@ func (s *MemoryStore) GetWorkerById(id model.WorkerID) (*model.Worker, error) {
 	return &rworker, nil
 }
 
-func (s *MemoryStore) CreateWorker(worker *model.Worker) (*model.Worker, error) {
+func (s *MemoryStore) CreateWorker(worker *model.Worker) error {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -88,29 +94,10 @@ func (s *MemoryStore) CreateWorker(worker *model.Worker) (*model.Worker, error) 
 	s.workersByEmail[stored.Email] = &stored
 
 	worker.ID = stored.ID
-	return worker, nil
+	return nil
 }
 
-func (s *MemoryStore) UpdateWorker(worker *model.Worker) (*model.Worker, error) {
-	s.RLock()
-	defer s.RUnlock()
-
-	existing, exists := s.workers[worker.ID]
-	if !exists {
-		return nil, errors.New("unknown worker ID")
-	}
-
-	delete(s.workers, worker.ID)
-	delete(s.workersByEmail, existing.Email)
-
-	stored := *worker
-	s.workers[stored.ID] = &stored
-	s.workersByEmail[stored.Email] = &stored
-
-	return worker, nil
-}
-
-func (s *MemoryStore) DeleteWorker(worker *model.Worker) error {
+func (s *MemoryStore) UpdateWorker(worker *model.Worker) error {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -122,33 +109,62 @@ func (s *MemoryStore) DeleteWorker(worker *model.Worker) error {
 	delete(s.workers, worker.ID)
 	delete(s.workersByEmail, existing.Email)
 
+	stored := *worker
+	s.workers[stored.ID] = &stored
+	s.workersByEmail[stored.Email] = &stored
+
 	return nil
 }
 
-func (s *MemoryStore) GetShifts(date *time.Time, span TimeSpan) ([]*model.Shift, error) {
+func (s *MemoryStore) DeleteWorkerById(id model.WorkerID) error {
+	s.RLock()
+	defer s.RUnlock()
+
+	existing, exists := s.workers[id]
+	if !exists {
+		return errors.New("unknown worker ID")
+	}
+
+	delete(s.workers, id)
+	delete(s.workersByEmail, existing.Email)
+
+	return nil
+}
+
+func (s *MemoryStore) GetShifts(
+	date *time.Time, span TimeSpan, workerId *model.WorkerID) ([]*model.Shift, error) {
 	s.RLock()
 	s.RUnlock()
 
 	// Calculate interval start and end from date and span.
-	y, m, d := date.Date()
-	intStart := time.Date(y, m, d, 0, 0, 0, 0, nil)
-	var intEnd time.Time
-	if span == DaySpan {
-		intEnd = intStart.AddDate(0, 0, 1)
-	} else {
-		wd := intStart.Weekday()
-		delta := (int(wd) - 1) % 7
-		intStart = intStart.AddDate(0, 0, -delta)
-		intEnd = intStart.AddDate(0, 0, 7)
+	var intStart, intEnd time.Time
+	includeAll := date == nil
+	if !includeAll {
+		intStart, intEnd = getSpanRange(date, span)
+	}
+
+	// If we're extracting shifts for a given worker, collect the
+	// assigned shift IDs for the worker for filtering here.
+	var assigned []model.ShiftID
+	if workerId != nil {
+		for _, a := range s.assignments {
+			if a.Worker == *workerId {
+				assigned = append(assigned, a.Shift)
+			}
+		}
 	}
 
 	// Include only shifts in interval.
-	shifts := make([]*model.Shift, len(s.shifts))
+	shifts := []*model.Shift{}
 	i := 0
 	for _, s := range s.shifts {
-		if s.StartTime.Before(intEnd) && s.EndTime.After(intStart) {
+		include := includeAll || s.StartTime.Before(intEnd) && s.EndTime.After(intStart)
+		if workerId != nil && include {
+			include = slices.Contains(assigned, s.ID)
+		}
+		if include {
 			rshift := *s
-			shifts[i] = &rshift
+			shifts = append(shifts, &rshift)
 			i++
 		}
 	}
@@ -169,7 +185,7 @@ func (s *MemoryStore) GetShiftById(id model.ShiftID) (*model.Shift, error) {
 	return &rshift, nil
 }
 
-func (s *MemoryStore) CreateShift(shift *model.Shift) (*model.Shift, error) {
+func (s *MemoryStore) CreateShift(shift *model.Shift) error {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -179,27 +195,10 @@ func (s *MemoryStore) CreateShift(shift *model.Shift) (*model.Shift, error) {
 	s.shifts[stored.ID] = &stored
 
 	shift.ID = stored.ID
-	return shift, nil
+	return nil
 }
 
-func (s *MemoryStore) UpdateShift(shift *model.Shift) (*model.Shift, error) {
-	s.RLock()
-	defer s.RUnlock()
-
-	_, exists := s.shifts[shift.ID]
-	if !exists {
-		return nil, errors.New("unknown shift ID")
-	}
-
-	delete(s.shifts, shift.ID)
-
-	stored := *shift
-	s.shifts[stored.ID] = &stored
-
-	return shift, nil
-}
-
-func (s *MemoryStore) DeleteShift(shift *model.Shift) error {
+func (s *MemoryStore) UpdateShift(shift *model.Shift) error {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -210,14 +209,69 @@ func (s *MemoryStore) DeleteShift(shift *model.Shift) error {
 
 	delete(s.shifts, shift.ID)
 
+	stored := *shift
+	s.shifts[stored.ID] = &stored
+
+	return nil
+}
+
+func (s *MemoryStore) DeleteShiftById(id model.ShiftID) error {
+	s.RLock()
+	defer s.RUnlock()
+
+	_, exists := s.shifts[id]
+	if !exists {
+		return errors.New("unknown shift ID")
+	}
+
+	delete(s.shifts, id)
+
 	return nil
 }
 
 func (s *MemoryStore) CreateShiftAssignment(
-	workerId model.WorkerID, shiftId model.ShiftID) (*model.ShiftAssignment, error) {
-	return nil, errors.New("NYI: MemoryStore.CreateShiftAssignment")
+	workerId model.WorkerID, shiftId model.ShiftID) error {
+	s.RLock()
+	defer s.RUnlock()
+
+	shift, exists := s.shifts[shiftId]
+	if !exists {
+		return errors.New("unknown shift ID")
+	}
+
+	existing := 0
+	for _, a := range s.assignments {
+		if a.Shift == shiftId {
+			existing++
+		}
+	}
+	if existing >= shift.Capacity {
+		return errors.New("shift is already at capacity")
+	}
+
+	shifts, err := s.GetShifts(nil, WeekSpan, &workerId)
+	if err != nil {
+		return errors.New("failed to retrieve shifts for worker")
+	}
+
+	if !domain.NewShiftAssignmentOK(shifts, shift) {
+		return errors.New("new shift is on the same day as an existing shift")
+	}
+
+	s.assignments = append(s.assignments, model.ShiftAssignment{Worker: workerId, Shift: shiftId})
+	return nil
 }
 
-func (s *MemoryStore) DeleteShiftAssignment(assignment *model.ShiftAssignment) error {
-	return errors.New("NYI: MemoryStore.DeleteShiftAssignment")
+func (s *MemoryStore) DeleteShiftAssignment(
+	workerId model.WorkerID, shiftId model.ShiftID) error {
+	s.RLock()
+	defer s.RUnlock()
+
+	pos := slices.Index(s.assignments, model.ShiftAssignment{Worker: workerId, Shift: shiftId})
+	if pos == -1 {
+		return errors.New("shift assignment not found")
+	}
+
+	s.assignments = slices.Delete(s.assignments, pos, pos)
+	return nil
 }

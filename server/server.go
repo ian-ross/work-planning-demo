@@ -1,22 +1,26 @@
 package server
 
 import (
-	"errors"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"skybluetrades.net/work-planning-demo/api"
+	"skybluetrades.net/work-planning-demo/model"
 	"skybluetrades.net/work-planning-demo/store"
 )
 
 type server struct {
-	config  *Config
-	db      store.Store
-	authKey string
+	config *Config
+	db     store.Store
 }
 
 func NewServer(cfg *Config) *server {
+	// Create a store for the server: options are a simple in-memory
+	// store for testing, or Postgres (not implemented yet) determined
+	// by the STORE_URL environment variable.
 	var db store.Store
 	var err error
 	if cfg.StoreURL == "memory" {
@@ -27,15 +31,11 @@ func NewServer(cfg *Config) *server {
 	if err != nil {
 		log.Fatalln("Error connecting to store: ", err)
 	}
-
-	if cfg.AddTestData {
-		addTestData(db)
-	}
+	db.Migrate()
 
 	return &server{
-		config:  cfg,
-		db:      db,
-		authKey: cfg.AuthKey,
+		config: cfg,
+		db:     db,
 	}
 }
 
@@ -66,11 +66,11 @@ func (s *server) PostLogin(ctx echo.Context) error {
 		return sendError(ctx, http.StatusForbidden, "Invalid login credentials")
 	}
 
+	// Generate JWTs and return credentials.
 	accessToken, refreshToken, err := GenerateTokens(worker, s.config)
 	if err != nil {
 		return err
 	}
-
 	creds := api.Credentials{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -94,7 +94,7 @@ func (s *server) PostRefreshToken(ctx echo.Context) error {
 	}
 
 	// Decode and validate the refresh token from the request.
-	claims, err := ValidateRefreshToken(refresh.RefreshToken, s.authKey)
+	claims, err := ValidateRefreshToken(refresh.RefreshToken, s.config.AuthKey)
 	if err != nil {
 		return sendError(ctx, http.StatusForbidden, "Failed to refresh access token")
 	}
@@ -105,7 +105,7 @@ func (s *server) PostRefreshToken(ctx echo.Context) error {
 		return sendError(ctx, http.StatusForbidden, "Failed to refresh access token (unknown user)")
 	}
 
-	// Generate new tokens.
+	// Generate and send new tokens.
 	accessToken, refreshToken, err := GenerateTokens(worker, s.config)
 	if err != nil {
 		return err
@@ -117,72 +117,201 @@ func (s *server) PostRefreshToken(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, creds)
 }
 
-// Get information about current user
-// (GET /me)
-func (s *server) GetMe(ctx echo.Context) error {
+func (s *server) currentWorker(ctx echo.Context) (*model.Worker, error) {
+	// We need the idea of the "current user" independent of the
+	// authentication flow. We can get the user ID associated with the
+	// JWT that was used for authentication from the token claims that
+	// we stored in the Echo context in the authentication middleware.
 	claims := ctx.Get("claims").(*JWTClaim)
 	worker, err := s.db.GetWorkerById(claims.ID)
 	if err != nil {
-		return sendError(ctx, http.StatusNotFound, "Worker record not found")
+		return nil, sendError(ctx, http.StatusNotFound, "Worker record not found")
+	}
+	return worker, nil
+}
+
+// Get information about current user
+// (GET /me)
+func (s *server) GetMe(ctx echo.Context) error {
+	worker, err := s.currentWorker(ctx)
+	if err != nil {
+		return err
 	}
 
-	id := int64(worker.ID)
-	w := api.Worker{
-		Id:      &id,
-		Email:   worker.Email,
-		Name:    worker.Name,
-		IsAdmin: worker.IsAdmin,
-	}
-	return ctx.JSON(http.StatusOK, w)
+	// Make a worker and return it.
+	return ctx.JSON(http.StatusOK, model.WorkerToAPI(worker))
 }
 
 // Get schedule information for current user
 // (GET /schedule)
-func (s *server) GetSchedule(ctx echo.Context, params api.GetScheduleParams) error {
-	return errors.New("NYI")
+func (s *server) GetMeSchedule(ctx echo.Context, params api.GetMeScheduleParams) error {
+	worker, err := s.currentWorker(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Date defaults to nothing (which means today), span defaults to
+	// week.
+	var date *time.Time
+	if params.Date != nil {
+		date = &params.Date.Time
+	}
+	span := store.WeekSpan
+	if params.Span != nil && *params.Span == "day" {
+		span = store.DaySpan
+	}
+	shifts, err := s.db.GetShifts(date, span, &worker.ID)
+	if err != nil {
+		return err
+	}
+
+	// Convert the Shift models from the store into OpenAPI Shift
+	// schema objects for return.
+	ss := make([]*api.Shift, len(shifts))
+	for i, s := range shifts {
+		ss[i] = model.ShiftToAPI(s)
+	}
+	return ctx.JSON(http.StatusOK, ss)
 }
 
 // Get shifts for a span of time
 // (GET /shift)
 func (s *server) GetShifts(ctx echo.Context, params api.GetShiftsParams) error {
-	return errors.New("NYI")
+	// Date defaults to nothing (which means today), span defaults to week.
+	var date *time.Time
+	if params.Date != nil {
+		date = &params.Date.Time
+	}
+	span := store.WeekSpan
+	if params.Span != nil && *params.Span == "day" {
+		span = store.DaySpan
+	}
+	shifts, err := s.db.GetShifts(date, span, nil)
+	if err != nil {
+		return err
+	}
+
+	// Convert the Shift models from the store into OpenAPI Shift
+	// schema objects for return.
+	ss := make([]*api.Shift, len(shifts))
+	for i, s := range shifts {
+		ss[i] = model.ShiftToAPI(s)
+	}
+	return ctx.JSON(http.StatusOK, ss)
 }
 
 // Create new shift
 // (POST /shift)
-func (s *server) CreateShift(ctx echo.Context) error { return errors.New("NYI") }
+func (s *server) CreateShift(ctx echo.Context) error {
+	var sh api.Shift
+	err := ctx.Bind(&sh)
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "Invalid format for shift")
+	}
+	err = checkShift(ctx, &sh, false)
+	if err != nil {
+		return err
+	}
+
+	shift := model.ShiftFromAPI(&sh)
+	err = s.db.CreateShift(shift)
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, model.ShiftToAPI(shift))
+}
 
 // Update an existing shift
 // (PUT /shift)
-func (s *server) UpdateShift(ctx echo.Context) error { return errors.New("NYI") }
+func (s *server) UpdateShift(ctx echo.Context) error {
+	var sh api.Shift
+	err := ctx.Bind(&sh)
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "Invalid format for shift")
+	}
+	err = checkShift(ctx, &sh, true)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.GetShiftById(model.ShiftID(*sh.Id))
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "Unknown shift ID")
+	}
+
+	shift := model.ShiftFromAPI(&sh)
+	err = s.db.UpdateShift(shift)
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, model.ShiftToAPI(shift))
+}
 
 // Delete an existing shift
 // (DELETE /shift/{shift-id})
 func (s *server) DeleteShift(ctx echo.Context, shiftId api.ShiftIdParam) error {
-	return errors.New("NYI")
+	err := s.db.DeleteShiftById(model.ShiftID(shiftId))
+	if err != nil {
+		return err
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // Get a single shift
 // (GET /shift/{shift-id})
 func (s *server) GetShift(ctx echo.Context, shiftId api.ShiftIdParam) error {
-	return errors.New("NYI")
+	shift, err := s.db.GetShiftById(model.ShiftID(shiftId))
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, model.ShiftToAPI(shift))
 }
 
 // Delete an existing shift assignment
 // (DELETE /shift/{shift-id}/assignment)
 func (s *server) DeleteShiftAssignment(ctx echo.Context, shiftId api.ShiftIdParam) error {
-	return errors.New("NYI")
+	worker, err := s.currentWorker(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = s.db.DeleteShiftAssignment(worker.ID, model.ShiftID(shiftId))
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "failed to delete assignment")
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // Create new shift assignment
 // (POST /shift/{shift-id}/assignment)
 func (s *server) CreateShiftAssignment(ctx echo.Context, shiftId api.ShiftIdParam) error {
-	return errors.New("NYI")
+	worker, err := s.currentWorker(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = s.db.CreateShiftAssignment(worker.ID, model.ShiftID(shiftId))
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "failed to delete assignment")
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // Delete an existing worker
-// (DELETE /worker)
-func (s *server) DeleteWorker(ctx echo.Context) error { return errors.New("NYI") }
+// (DELETE /worker/{worker-id})
+func (s *server) DeleteWorker(ctx echo.Context, workerId api.WorkerIdParam) error {
+	err := s.db.DeleteWorkerById(model.WorkerID(workerId))
+	if err != nil {
+		return err
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
+}
 
 // Get all workers
 // (GET /worker)
@@ -192,30 +321,132 @@ func (s *server) GetWorkers(ctx echo.Context) error {
 		return err
 	}
 
+	// Convert the Worker models from the store into OpenAPI Worker
+	// schema objects for return.
 	ws := make([]*api.Worker, len(workers))
 	for i, w := range workers {
-		id := int64(w.ID)
-		rw := api.Worker{
-			Id:      &id,
-			Email:   w.Email,
-			Name:    w.Name,
-			IsAdmin: w.IsAdmin,
-		}
-		ws[i] = &rw
+		ws[i] = model.WorkerToAPI(w)
 	}
 	return ctx.JSON(http.StatusOK, ws)
 }
 
 // Create new worker
 // (POST /worker)
-func (s *server) CreateWorker(ctx echo.Context) error { return errors.New("NYI") }
+func (s *server) CreateWorker(ctx echo.Context) error {
+	var w api.Worker
+	err := ctx.Bind(&w)
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "Invalid format for worker")
+	}
+	err = checkWorker(ctx, &w, false)
+	if err != nil {
+		return err
+	}
+
+	worker := model.WorkerFromAPI(&w)
+	err = s.db.CreateWorker(worker)
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, model.WorkerToAPI(worker))
+}
 
 // Update an existing worker
 // (PUT /worker)
-func (s *server) UpdateWorker(ctx echo.Context) error { return errors.New("NYI") }
+func (s *server) UpdateWorker(ctx echo.Context) error {
+	var w api.Worker
+	err := ctx.Bind(&w)
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "Invalid format for worker")
+	}
+	err = checkWorker(ctx, &w, true)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.GetWorkerById(model.WorkerID(*w.Id))
+	if err != nil {
+		return sendError(ctx, http.StatusBadRequest, "Unknown worker ID")
+	}
+
+	worker := model.WorkerFromAPI(&w)
+	err = s.db.UpdateWorker(worker)
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, model.WorkerToAPI(worker))
+}
 
 // Get a single worker
 // (GET /worker/{worker-id})
 func (s *server) GetWorker(ctx echo.Context, workerId api.WorkerIdParam) error {
-	return errors.New("NYI")
+	worker, err := s.db.GetWorkerById(model.WorkerID(workerId))
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(http.StatusOK, model.WorkerToAPI(worker))
+}
+
+// Get schedule for a single worker
+// (GET /worker/{worker-id}/schedule)
+func (s *server) GetWorkerSchedule(ctx echo.Context,
+	workerId api.WorkerIdParam, params api.GetWorkerScheduleParams) error {
+	worker, err := s.db.GetWorkerById(model.WorkerID(workerId))
+	if err != nil {
+		return err
+	}
+
+	// Date defaults to nothing (which means today), span defaults to
+	// week.
+	var date *time.Time
+	if params.Date != nil {
+		date = &params.Date.Time
+	}
+	span := store.WeekSpan
+	if params.Span != nil && *params.Span == "day" {
+		span = store.DaySpan
+	}
+	shifts, err := s.db.GetShifts(date, span, &worker.ID)
+	if err != nil {
+		return err
+	}
+
+	// Convert the Shift models from the store into OpenAPI Shift
+	// schema objects for return.
+	ss := make([]*api.Shift, len(shifts))
+	for i, s := range shifts {
+		ss[i] = model.ShiftToAPI(s)
+	}
+	return ctx.JSON(http.StatusOK, ss)
+}
+
+func checkWorker(ctx echo.Context, w *api.Worker, needId bool) error {
+	if needId && w.Id == nil {
+		return sendError(ctx, http.StatusBadRequest, "Missing worker ID")
+	}
+	if w.Password == nil || len(*w.Password) == 0 {
+		return sendError(ctx, http.StatusBadRequest, "Missing password for worker")
+	}
+	if strings.TrimSpace(w.Name) == "" {
+		return sendError(ctx, http.StatusBadRequest, "Missing name for worker")
+	}
+	if strings.TrimSpace(w.Email) == "" {
+		return sendError(ctx, http.StatusBadRequest, "Missing email for worker")
+	}
+	return nil
+}
+
+func checkShift(ctx echo.Context, s *api.Shift, needId bool) error {
+	if needId && s.Id == nil {
+		return sendError(ctx, http.StatusBadRequest, "Missing shift ID")
+	}
+	if s.Capacity <= 0 {
+		return sendError(ctx, http.StatusBadRequest, "Bad capacity value for shift")
+	}
+	if s.StartTime.After(s.EndTime) {
+		return sendError(ctx, http.StatusBadRequest, "Bad time range for shift")
+	}
+	return nil
 }

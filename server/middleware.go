@@ -1,25 +1,22 @@
 package server
 
 import (
-	"fmt"
-
 	"github.com/deepmap/oapi-codegen/pkg/middleware"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/labstack/echo/v4"
-	"skybluetrades.net/work-planning-demo/api"
 )
 
-func CreateMiddleware(cfg *Config) ([]echo.MiddlewareFunc, error) {
-	spec, err := api.GetSwagger()
-	if err != nil {
-		return nil, fmt.Errorf("Error loading swagger spec: %w", err)
-	}
-	spec.Servers = nil
-
+func CreateMiddleware(spec *openapi3.T, cfg *Config) ([]echo.MiddlewareFunc, error) {
 	validator := middleware.OapiRequestValidatorWithOptions(spec,
 		&middleware.Options{
 			Options: openapi3filter.Options{
 				AuthenticationFunc: NewAuthenticator(cfg),
+			},
+			Skipper: func(ctx echo.Context) bool {
+				// Skip checks for static files.
+				p := ctx.Path()
+				return p == "/openapi3.json" || p == "/*"
 			},
 		})
 

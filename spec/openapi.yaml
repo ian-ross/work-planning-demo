@@ -99,11 +99,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Worker'
 
-  /schedule:
+  /me/schedule:
     get:
       tags: [scheduling]
       summary: Get schedule information for current user
-      operationId: getSchedule
+      operationId: getMeSchedule
       parameters:
         - $ref: '#/components/parameters/SpanDate'
         - $ref: '#/components/parameters/SpanLength'
@@ -176,17 +176,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Worker'
                 
-    delete:
-      tags: [worker]
-      summary: Delete an existing worker
-      operationId: deleteWorker
-      security:
-        - BearerAuth:
-            - admin
-      responses:
-        '204':
-          description: Successful deletion of worker
-
   "/worker/{worker-id}":
     get:
       tags: [worker]
@@ -205,6 +194,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/Worker'
 
+    delete:
+      tags: [worker]
+      summary: Delete an existing worker
+      operationId: deleteWorker
+      security:
+        - BearerAuth:
+            - admin
+      parameters:
+        - $ref: '#/components/parameters/WorkerIdParam'
+      responses:
+        '204':
+          description: Successful deletion of worker
+
+
+  "/worker/{worker-id}/schedule":
+    get:
+      tags: [worker]
+      summary: Get schedule for a single worker
+      operationId: getWorkerSchedule
+      security:
+        - BearerAuth:
+            - admin
+      parameters:
+        - $ref: '#/components/parameters/WorkerIdParam'
+        - $ref: '#/components/parameters/SpanDate'
+        - $ref: '#/components/parameters/SpanLength'
+      responses:
+        '200':
+          description: Successful retrieval of schedule for a single worker
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shift'
+                
   /shift:
     get:
       tags: [shift]
@@ -410,7 +435,7 @@ components:
 
     Shift:
       type: object
-      required: [start_time, end_time, total_capacity]
+      required: [start_time, end_time, capacity]
       properties:
         id:
           $ref: '#/components/schemas/ShiftId'
@@ -420,12 +445,13 @@ components:
         end_time:
           type: string
           format: date-time
-        total_capacity:
+        capacity:
           type: integer
           format: int32
-        remaining_capacity:
-          type: integer
-          format: int32
+        assigned_workers:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkerId'
           
   securitySchemes:
     BearerAuth:

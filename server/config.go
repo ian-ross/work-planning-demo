@@ -22,8 +22,4 @@ type Config struct {
 
 	// AuthKey is a secret string used for generating JWT tokens.
 	AuthKey string `env:"AUTH_KEY,required"`
-
-	// AddTestData indicates that we should insert some test data into
-	// the store on startup.
-	AddTestData bool `env:"ADD_TEST_DATA,default=false"`
 }

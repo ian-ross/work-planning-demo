@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/deepmap/oapi-codegen/pkg/runtime"
 	openapi_types "github.com/deepmap/oapi-codegen/pkg/types"
@@ -29,16 +30,22 @@ const (
 	SpanLengthWeek SpanLength = "week"
 )
 
-// Defines values for GetScheduleParamsSpan.
+// Defines values for GetMeScheduleParamsSpan.
 const (
-	GetScheduleParamsSpanDay  GetScheduleParamsSpan = "day"
-	GetScheduleParamsSpanWeek GetScheduleParamsSpan = "week"
+	GetMeScheduleParamsSpanDay  GetMeScheduleParamsSpan = "day"
+	GetMeScheduleParamsSpanWeek GetMeScheduleParamsSpan = "week"
 )
 
 // Defines values for GetShiftsParamsSpan.
 const (
-	Day  GetShiftsParamsSpan = "day"
-	Week GetShiftsParamsSpan = "week"
+	GetShiftsParamsSpanDay  GetShiftsParamsSpan = "day"
+	GetShiftsParamsSpanWeek GetShiftsParamsSpan = "week"
+)
+
+// Defines values for GetWorkerScheduleParamsSpan.
+const (
+	GetWorkerScheduleParamsSpanDay  GetWorkerScheduleParamsSpan = "day"
+	GetWorkerScheduleParamsSpanWeek GetWorkerScheduleParamsSpan = "week"
 )
 
 // Credentials defines model for Credentials.
@@ -65,11 +72,11 @@ type Login struct {
 
 // Shift defines model for Shift.
 type Shift struct {
-	Capacity  int32              `json:"capacity"`
-	Day       openapi_types.Date `json:"day"`
-	EndTime   string             `json:"end_time"`
-	Id        *ShiftId           `json:"id,omitempty"`
-	StartTime string             `json:"start_time"`
+	AssignedWorkers *[]WorkerId `json:"assigned_workers,omitempty"`
+	Capacity        int32       `json:"capacity"`
+	EndTime         time.Time   `json:"end_time"`
+	Id              *ShiftId    `json:"id,omitempty"`
+	StartTime       time.Time   `json:"start_time"`
 }
 
 // ShiftId defines model for ShiftId.
@@ -99,17 +106,17 @@ type SpanLength string
 // WorkerIdParam defines model for WorkerIdParam.
 type WorkerIdParam = WorkerId
 
-// GetScheduleParams defines parameters for GetSchedule.
-type GetScheduleParams struct {
+// GetMeScheduleParams defines parameters for GetMeSchedule.
+type GetMeScheduleParams struct {
 	// Date Date including in weekly schedule to fetch (defaults to today)
 	Date *SpanDate `form:"date,omitempty" json:"date,omitempty"`
 
 	// Span Span of schedule ("week" or "day", defaults to "week")
-	Span *GetScheduleParamsSpan `form:"span,omitempty" json:"span,omitempty"`
+	Span *GetMeScheduleParamsSpan `form:"span,omitempty" json:"span,omitempty"`
 }
 
-// GetScheduleParamsSpan defines parameters for GetSchedule.
-type GetScheduleParamsSpan string
+// GetMeScheduleParamsSpan defines parameters for GetMeSchedule.
+type GetMeScheduleParamsSpan string
 
 // GetShiftsParams defines parameters for GetShifts.
 type GetShiftsParams struct {
@@ -122,6 +129,18 @@ type GetShiftsParams struct {
 
 // GetShiftsParamsSpan defines parameters for GetShifts.
 type GetShiftsParamsSpan string
+
+// GetWorkerScheduleParams defines parameters for GetWorkerSchedule.
+type GetWorkerScheduleParams struct {
+	// Date Date including in weekly schedule to fetch (defaults to today)
+	Date *SpanDate `form:"date,omitempty" json:"date,omitempty"`
+
+	// Span Span of schedule ("week" or "day", defaults to "week")
+	Span *GetWorkerScheduleParamsSpan `form:"span,omitempty" json:"span,omitempty"`
+}
+
+// GetWorkerScheduleParamsSpan defines parameters for GetWorkerSchedule.
+type GetWorkerScheduleParamsSpan string
 
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = Login
@@ -156,8 +175,8 @@ type ServerInterface interface {
 	// (GET /me)
 	GetMe(ctx echo.Context) error
 	// Get schedule information for current user
-	// (GET /schedule)
-	GetSchedule(ctx echo.Context, params GetScheduleParams) error
+	// (GET /me/schedule)
+	GetMeSchedule(ctx echo.Context, params GetMeScheduleParams) error
 	// Get shifts for a span of time
 	// (GET /shift)
 	GetShifts(ctx echo.Context, params GetShiftsParams) error
@@ -179,9 +198,6 @@ type ServerInterface interface {
 	// Create new shift assignment
 	// (POST /shift/{shift-id}/assignment)
 	CreateShiftAssignment(ctx echo.Context, shiftId ShiftIdParam) error
-	// Delete an existing worker
-	// (DELETE /worker)
-	DeleteWorker(ctx echo.Context) error
 	// Get all workers
 	// (GET /worker)
 	GetWorkers(ctx echo.Context) error
@@ -191,9 +207,15 @@ type ServerInterface interface {
 	// Update an existing worker
 	// (PUT /worker)
 	UpdateWorker(ctx echo.Context) error
+	// Delete an existing worker
+	// (DELETE /worker/{worker-id})
+	DeleteWorker(ctx echo.Context, workerId WorkerIdParam) error
 	// Get a single worker
 	// (GET /worker/{worker-id})
 	GetWorker(ctx echo.Context, workerId WorkerIdParam) error
+	// Get schedule for a single worker
+	// (GET /worker/{worker-id}/schedule)
+	GetWorkerSchedule(ctx echo.Context, workerId WorkerIdParam, params GetWorkerScheduleParams) error
 }
 
 // ServerInterfaceWrapper converts echo contexts to parameters.
@@ -239,14 +261,14 @@ func (w *ServerInterfaceWrapper) GetMe(ctx echo.Context) error {
 	return err
 }
 
-// GetSchedule converts echo context to params.
-func (w *ServerInterfaceWrapper) GetSchedule(ctx echo.Context) error {
+// GetMeSchedule converts echo context to params.
+func (w *ServerInterfaceWrapper) GetMeSchedule(ctx echo.Context) error {
 	var err error
 
 	ctx.Set(BearerAuthScopes, []string{""})
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetScheduleParams
+	var params GetMeScheduleParams
 	// ------------- Optional query parameter "date" -------------
 
 	err = runtime.BindQueryParameter("form", true, false, "date", ctx.QueryParams(), &params.Date)
@@ -262,7 +284,7 @@ func (w *ServerInterfaceWrapper) GetSchedule(ctx echo.Context) error {
 	}
 
 	// Invoke the callback with all the unmarshalled arguments
-	err = w.Handler.GetSchedule(ctx, params)
+	err = w.Handler.GetMeSchedule(ctx, params)
 	return err
 }
 
@@ -387,17 +409,6 @@ func (w *ServerInterfaceWrapper) CreateShiftAssignment(ctx echo.Context) error {
 	return err
 }
 
-// DeleteWorker converts echo context to params.
-func (w *ServerInterfaceWrapper) DeleteWorker(ctx echo.Context) error {
-	var err error
-
-	ctx.Set(BearerAuthScopes, []string{"admin"})
-
-	// Invoke the callback with all the unmarshalled arguments
-	err = w.Handler.DeleteWorker(ctx)
-	return err
-}
-
 // GetWorkers converts echo context to params.
 func (w *ServerInterfaceWrapper) GetWorkers(ctx echo.Context) error {
 	var err error
@@ -431,6 +442,24 @@ func (w *ServerInterfaceWrapper) UpdateWorker(ctx echo.Context) error {
 	return err
 }
 
+// DeleteWorker converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteWorker(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "worker-id" -------------
+	var workerId WorkerIdParam
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "worker-id", runtime.ParamLocationPath, ctx.Param("worker-id"), &workerId)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter worker-id: %s", err))
+	}
+
+	ctx.Set(BearerAuthScopes, []string{"admin"})
+
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.DeleteWorker(ctx, workerId)
+	return err
+}
+
 // GetWorker converts echo context to params.
 func (w *ServerInterfaceWrapper) GetWorker(ctx echo.Context) error {
 	var err error
@@ -446,6 +475,40 @@ func (w *ServerInterfaceWrapper) GetWorker(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshalled arguments
 	err = w.Handler.GetWorker(ctx, workerId)
+	return err
+}
+
+// GetWorkerSchedule converts echo context to params.
+func (w *ServerInterfaceWrapper) GetWorkerSchedule(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "worker-id" -------------
+	var workerId WorkerIdParam
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "worker-id", runtime.ParamLocationPath, ctx.Param("worker-id"), &workerId)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter worker-id: %s", err))
+	}
+
+	ctx.Set(BearerAuthScopes, []string{"admin"})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetWorkerScheduleParams
+	// ------------- Optional query parameter "date" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "date", ctx.QueryParams(), &params.Date)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter date: %s", err))
+	}
+
+	// ------------- Optional query parameter "span" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "span", ctx.QueryParams(), &params.Span)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter span: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetWorkerSchedule(ctx, workerId, params)
 	return err
 }
 
@@ -481,7 +544,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/auth/logout", wrapper.PostLogout)
 	router.POST(baseURL+"/auth/refresh_token", wrapper.PostRefreshToken)
 	router.GET(baseURL+"/me", wrapper.GetMe)
-	router.GET(baseURL+"/schedule", wrapper.GetSchedule)
+	router.GET(baseURL+"/me/schedule", wrapper.GetMeSchedule)
 	router.GET(baseURL+"/shift", wrapper.GetShifts)
 	router.POST(baseURL+"/shift", wrapper.CreateShift)
 	router.PUT(baseURL+"/shift", wrapper.UpdateShift)
@@ -489,41 +552,43 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.GET(baseURL+"/shift/:shift-id", wrapper.GetShift)
 	router.DELETE(baseURL+"/shift/:shift-id/assignment", wrapper.DeleteShiftAssignment)
 	router.POST(baseURL+"/shift/:shift-id/assignment", wrapper.CreateShiftAssignment)
-	router.DELETE(baseURL+"/worker", wrapper.DeleteWorker)
 	router.GET(baseURL+"/worker", wrapper.GetWorkers)
 	router.POST(baseURL+"/worker", wrapper.CreateWorker)
 	router.PUT(baseURL+"/worker", wrapper.UpdateWorker)
+	router.DELETE(baseURL+"/worker/:worker-id", wrapper.DeleteWorker)
 	router.GET(baseURL+"/worker/:worker-id", wrapper.GetWorker)
+	router.GET(baseURL+"/worker/:worker-id/schedule", wrapper.GetWorkerSchedule)
 
 }
 
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/+RZW2/bNhT+KwS3hw7QYq8J9uC3tFmHDB0QLB36kAQBIx7bbCRSJal4RqD/PhxSV5uy",
-	"5djxBuTJEC+H3/nOlfQzjVWaKQnSGjp5phnTLAUL2n1dz8XUXvIrHMRvDibWIrNCSTrxs+TygkZU4HfG",
-	"7JxGVLIU6IQanP1ZcBpRDd9zoYHTidU5RNTEc0gZCvxRw5RO6A+jBsXIz5pReTgtioheZ0xeMAvrIHCU",
-	"CBknORdyRoQkC4DHZElQDM8TIFaRKdh4Tt5xmLI8sQaHrOJs+VMF/XsOetlg53hUG+dU6ZTZZsYuM6ej",
-	"1ULOaoSfQc7sPEBUxiRR0wbSu1uKKG8pUZrcUs6WtzQibXjVgj6EJmOyg7DcTCduI40oyDylk5vqk7Ml",
-	"vQsB/6r0I+heI/vpXisv3PQ+Zq7OpwWiKUdx00cNHKQVLPGeqVUG2gpwXyyOwZh7qx5B4veKXghmqsHM",
-	"e1cUbbw3XXmruxve1MM3iC3Kb6H7yy9eB7kjhu2H/qa10uvnpGAMm8H2E6qFIdmf1UzIddmQMpEEGc6Y",
-	"MQuleSc+6sFoCxQvtyUlhMmlgHVMMctYLOyyc7KQ9vR9c6yQFmagUQq6/vYYxojh91ak0FnsBgKLBR+c",
-	"vyJqLNN2qOwVohB9R0ILaNRQ0UvfJV+l6dezIE0+EHfxgO0cNMEdUWHuGU9FOxAelEqASZz1+eTV3MyJ",
-	"b2EI0VWDHcIXWhXiXAu7vEZlPVcfgGnQ57mvAg/u61Ml6o+vX6qU7ZR3s43oubWZT4JCTpXjQtgE6kJ7",
-	"lTApscadX13SiD6BNj5Fj09+ORmjAioDyTJBJ/T0ZHwydtFl5w7YiOV2PkrqGFfGxRXamWGmR63plTLW",
-	"pwFPIhj7QXEXPLGSFqTbw7IsEbHbNfpmlJM3LNV72UXXRlgr3IDJlDSexvfj8cEObZcRd/RKbc5d5p/m",
-	"CfHsFBE9O+DxPmUHDr6UTywRnHhPw582gNPjAXCnkrhDU+PcdHKDscJmxpXJ3M5xlUdC73Bl7Voqt1t9",
-	"C9esGfss0DJ1zIK7XgJqrQD3YyuL+Je6ATi8+wdahv9tLDjGiK5g/ncxEQByhNj4xEQCHBvx8mTiG0QP",
-	"Z1df9JVtBgHX+x3sn0Bf0eRlVd9sbQ1WC3hiCd5ScgOacGaZVzNPU6aXHirByoSmEUoS9qByS+Jca5DW",
-	"7aIND/5eUOpf3Xs2sXBdrYk6d9CbsHbNklF9NSyiQWvLS1pxtyfpwkJqBvWA6LVljWdas+XOxqj5WzdI",
-	"faVsWwbjpscu5XpslUrbVC12r2FwgXnTZlmzivGcBMzhJpwBGDHltb9q8ysTuMPvsLUNVqOPGpgFD/F1",
-	"ClGp/nFrT+vQXtePUXX04Irj1Uzb7bBvaNnMo9c0hvAEEgmLUkiQ+zxA/d8Zf6vU5071/Yj39BEmCfwj",
-	"jMW7Sp8B6tQzeq4eCgvfBSbgn/m6lrlw45VldkxF7VfMQII563vaNDU9yZJ4ZPxFxHj0g4iJNifigyt/",
-	"NC8LJ9FADmXECDlLYCffGTFjxEympRYD3Oi82XA0h2pAbvCtrV7TEtNX2QfUliPrX/vAWo5vq9MlYDWR",
-	"D1AcfWNRP2RtdoOyNd7xOupklvgXVXN9kJSwqPCsNdH9ScHrYOgxuqbqKvHybtYrRBJhXlZgXHpIklKO",
-	"CVO1yfNbJj98bW9ftY5X3Add8NpBt4fTtgJyk7Nu6K3eqgFa7ZUvbntYIdBm9VujSYij5/rPumLTha82",
-	"0W5Fofs/4qt2Gru/aexPeqcz2UD3RtFOZrlntcS4x/GofO0kTPKVp6/6L9eVJya8X4f+sjWrf9IGVtZ3",
-	"+/Z/9qF1TYlt1jZjxV3xbwAAAP//gsMmE0ggAAA=",
+	"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",
+	"2P7MIgAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
