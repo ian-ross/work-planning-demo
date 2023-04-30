@@ -24,7 +24,7 @@ Implemented things:
  - In-memory data store for development (use `STORE_URL=memory`).
  - PostgreSQL data store including embedded migrations (use
    `STORE_URL=postgres://whatever`).
- - OpenAPI documentation using Redoc.
+ - OpenAPI documentation using Swagger UI.
  - Some tests (just for the login flow and authentication middleware
    so far).
 
