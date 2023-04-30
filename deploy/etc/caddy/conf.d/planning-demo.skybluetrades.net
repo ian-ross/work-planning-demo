@@ -1,0 +1,6 @@
+planning-demo.skybluetrades.net {
+  reverse_proxy * localhost:7000
+  log {
+    output file /var/log/caddy/planning-demo.skybluetrades.net.access.log
+  }
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=planning-demo
+After=network.target
+
+[Service]
+EnvironmentFile=-/etc/planning-demo.env
+ExecStart=/opt/planning-demo/planning-demo
+WorkingDirectory=/opt/planning-demo
+User=planning-demo
+Group=planning-demo
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=SIGKILL
+
+[Install]
+WantedBy=multi-user.target
+Alias=planning-demo.service
